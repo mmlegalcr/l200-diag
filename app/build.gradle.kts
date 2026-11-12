@@ -10,9 +10,14 @@ android {
     defaultConfig {
         applicationId = "cr.andres.l200diag"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 3
-        versionName = "0.3"
+        targetSdk = 29
+        versionCode = 4
+        versionName = "0.4"
+
+        // La librería de la dashcam solo existe en 32 bits: la app corre como proceso de 32 bits.
+        ndk {
+            abiFilters += "armeabi-v7a"
+        }
     }
 
     buildTypes {

@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -13,6 +15,8 @@
 
     <application
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
+        android:extractNativeLibs="true"
         android:icon="@android:drawable/ic_menu_info_details"
         android:label="L200 Diagnóstico"
         android:theme="@android:style/Theme.Material.NoActionBar">
@@ -32,6 +36,10 @@
 
         <activity
             android:name=".MultiPreviewActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".DashcamTestActivity"
             android:exported="false" />
     </application>
 </manifest>

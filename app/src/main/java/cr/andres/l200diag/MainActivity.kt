@@ -87,6 +87,9 @@ class MainActivity : Activity() {
         left.addView(button("Compartir reporte") { shareReport() })
         left.addView(button("Guardar en Descargas") { saveReport() })
         left.addView(button("Copiar reporte") { copyReport() })
+        left.addView(button("Probar dashcam (USB DVR)") {
+            startActivity(Intent(this, DashcamTestActivity::class.java))
+        })
         left.addView(TextView(this).apply {
             text = "Probar cámaras:"
             setTextColor(Color.parseColor("#9FB3C8"))
@@ -165,7 +168,7 @@ class MainActivity : Activity() {
     private fun buildReport(): String {
         val sb = StringBuilder()
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        sb.appendLine("REPORTE L200 DIAGNÓSTICO v0.3 — $now")
+        sb.appendLine("REPORTE L200 DIAGNÓSTICO v0.4 — $now")
         sb.appendLine("Tip: corre el escaneo una vez con el DVR abierto y otra con el DVR cerrado.")
 
         section(sb, "1. SISTEMA") { appendSystem(it) }
