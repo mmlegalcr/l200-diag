@@ -165,7 +165,7 @@ class MainActivity : Activity() {
     private fun buildReport(): String {
         val sb = StringBuilder()
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        sb.appendLine("REPORTE L200 DIAGNÓSTICO v0.2 — $now")
+        sb.appendLine("REPORTE L200 DIAGNÓSTICO v0.3 — $now")
         sb.appendLine("Tip: corre el escaneo una vez con el DVR abierto y otra con el DVR cerrado.")
 
         section(sb, "1. SISTEMA") { appendSystem(it) }
@@ -177,6 +177,12 @@ class MainActivity : Activity() {
         section(sb, "7. APPS CON ÍCONO") { appendLauncherApps(it) }
         section(sb, "8. PAQUETES DEL SISTEMA RELEVANTES") { appendSystemPackages(it) }
         section(sb, "9. PROPIEDADES DEL SISTEMA RELEVANTES") { appendProps(it) }
+        section(sb, "10. USB A NIVEL KERNEL (/sys/bus/usb)") { appendUsbSysfs(it) }
+        section(sb, "11. VOLÚMENES DE ALMACENAMIENTO") { appendVolumes(it) }
+        section(sb, "12. ANÁLISIS DE APPS DE CÁMARA") {
+            appendAppAnalysis(it, "com.fvision.camera")
+            appendAppAnalysis(it, "com.tw.reverse")
+        }
 
         sb.appendLine()
         sb.appendLine("— fin del reporte —")
@@ -386,6 +392,124 @@ class MainActivity : Activity() {
             .toList()
         if (lines.isEmpty()) sb.appendLine("Sin coincidencias (o getprop bloqueado).")
         lines.forEach { sb.appendLine("  $it") }
+    }
+
+    private fun appendUsbSysfs(sb: StringBuilder) {
+        val root = File("/sys/bus/usb/devices")
+        val entries = root.listFiles()
+        if (entries == null) {
+            sb.appendLine("Sin acceso a /sys/bus/usb/devices (bloqueado por SELinux).")
+            return
+        }
+        sb.appendLine("Entradas: ${entries.size}")
+        for (d in entries.sortedBy { it.name }) {
+            fun r(name: String): String = try {
+                File(d, name).takeIf { it.canRead() }?.readText()?.trim() ?: ""
+            } catch (_: Exception) {
+                ""
+            }
+            val vid = r("idVendor")
+            val pid = r("idProduct")
+            val ifClass = r("bInterfaceClass")
+            if (vid.isNotEmpty()) {
+                sb.appendLine("  ${d.name}: VID=$vid PID=$pid  ${r("manufacturer")} ${r("product")}  clase=${r("bDeviceClass")} velocidad=${r("speed")}Mbps")
+            } else if (ifClass.isNotEmpty()) {
+                val tag = when (ifClass.lowercase()) {
+                    "0e" -> "  <-- VIDEO (UVC)"
+                    "08" -> "  (almacenamiento masivo)"
+                    "ff" -> "  (propietario)"
+                    "01" -> "  (audio)"
+                    "09" -> "  (hub)"
+                    else -> ""
+                }
+                val drv = try {
+                    File(d, "driver").canonicalFile.name
+                } catch (_: Exception) {
+                    "?"
+                }
+                sb.appendLine("      ${d.name}: interfaz clase=$ifClass sub=${r("bInterfaceSubClass")} driver=$drv$tag")
+            }
+        }
+    }
+
+    private fun appendVolumes(sb: StringBuilder) {
+        val sm = getSystemService(STORAGE_SERVICE) as android.os.storage.StorageManager
+        for (v in sm.storageVolumes) {
+            val path = if (Build.VERSION.SDK_INT >= 30) v.directory?.absolutePath else null
+            sb.appendLine("  ${v.getDescription(this)}  estado=${v.state}  removible=${v.isRemovable}  uuid=${v.uuid ?: "-"}  ${path ?: ""}")
+        }
+        try {
+            val mounts = File("/proc/mounts").readLines()
+                .filter { it.contains("/mnt/media_rw") || it.contains("/storage/") && !it.contains("emulated") }
+                .take(20)
+            if (mounts.isNotEmpty()) sb.appendLine("Montajes externos:")
+            mounts.forEach { sb.appendLine("  $it") }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun appendAppAnalysis(sb: StringBuilder, pkg: String) {
+        val pm = packageManager
+        sb.appendLine()
+        sb.appendLine("--- $pkg ---")
+        @Suppress("DEPRECATION")
+        val flags = PackageManager.GET_PERMISSIONS or PackageManager.GET_SERVICES or
+            PackageManager.GET_RECEIVERS or PackageManager.GET_ACTIVITIES or
+            PackageManager.GET_PROVIDERS or PackageManager.GET_META_DATA
+        val info = try {
+            pm.getPackageInfo(pkg, flags)
+        } catch (_: PackageManager.NameNotFoundException) {
+            sb.appendLine("No instalado.")
+            return
+        }
+        val ai = info.applicationInfo
+        sb.appendLine("Versión: ${info.versionName} (${info.longVersionCode})  app de sistema: ${(ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0}")
+        sb.appendLine("APK: ${ai.sourceDir}")
+
+        val perms = info.requestedPermissions?.map { it.removePrefix("android.permission.") }?.sorted()
+        sb.appendLine("Permisos: ${perms?.joinToString() ?: "-"}")
+
+        // Librerías nativas: sus nombres delatan el protocolo (libusb, libuvc, jpeg, h264…)
+        val libs = mutableSetOf<String>()
+        ai.nativeLibraryDir?.let { dir -> File(dir).listFiles()?.forEach { libs += it.name } }
+        try {
+            java.util.zip.ZipFile(ai.sourceDir).use { zip ->
+                zip.entries().asSequence()
+                    .filter { it.name.startsWith("lib/") && it.name.endsWith(".so") }
+                    .forEach { libs += it.name.substringAfterLast('/') }
+            }
+        } catch (_: Exception) {
+        }
+        sb.appendLine("Librerías nativas: ${if (libs.isEmpty()) "ninguna" else libs.sorted().joinToString()}")
+
+        // Filtros USB declarados en el manifiesto (meta-data android.hardware.usb.action.USB_DEVICE_ATTACHED)
+        val usbIntent = Intent("android.hardware.usb.action.USB_DEVICE_ATTACHED").setPackage(pkg)
+        val usbActs = pm.queryIntentActivities(usbIntent, PackageManager.GET_META_DATA)
+        sb.appendLine("Reacciona a USB conectado: ${if (usbActs.isEmpty()) "no" else usbActs.joinToString { it.activityInfo.name }}")
+        for (r in usbActs) {
+            val xmlRes = r.activityInfo.metaData?.getInt("android.hardware.usb.action.USB_DEVICE_ATTACHED") ?: 0
+            if (xmlRes != 0) {
+                try {
+                    val res = pm.getResourcesForApplication(ai)
+                    val parser = res.getXml(xmlRes)
+                    var ev = parser.eventType
+                    while (ev != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                        if (ev == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "usb-device") {
+                            val attrs = (0 until parser.attributeCount).joinToString { "${parser.getAttributeName(it)}=${parser.getAttributeValue(it)}" }
+                            sb.appendLine("    filtro usb-device: $attrs")
+                        }
+                        ev = parser.next()
+                    }
+                } catch (e: Exception) {
+                    sb.appendLine("    (no se pudo leer el filtro: ${e.message})")
+                }
+            }
+        }
+
+        info.services?.let { s -> sb.appendLine("Servicios: ${s.joinToString { it.name.substringAfterLast('.') }}") }
+        info.receivers?.let { s -> sb.appendLine("Receptores: ${s.joinToString { it.name.substringAfterLast('.') }}") }
+        info.providers?.let { s -> sb.appendLine("Proveedores: ${s.joinToString { "${it.name.substringAfterLast('.')} (${it.authority})" }}") }
+        info.activities?.let { s -> sb.appendLine("Actividades: ${s.joinToString { it.name.substringAfterLast('.') }}") }
     }
 
     private fun isInteresting(s: String): Boolean {
