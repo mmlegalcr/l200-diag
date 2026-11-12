@@ -165,7 +165,7 @@ class MainActivity : Activity() {
     private fun buildReport(): String {
         val sb = StringBuilder()
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        sb.appendLine("REPORTE L200 DIAGNÓSTICO v0.1 — $now")
+        sb.appendLine("REPORTE L200 DIAGNÓSTICO v0.2 — $now")
         sb.appendLine("Tip: corre el escaneo una vez con el DVR abierto y otra con el DVR cerrado.")
 
         section(sb, "1. SISTEMA") { appendSystem(it) }
@@ -427,6 +427,11 @@ class MainActivity : Activity() {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             })
             return
+        }
+        if (ids.size > 1) {
+            cameraButtons.addView(button("Ver TODAS a la vez") {
+                startActivity(Intent(this, MultiPreviewActivity::class.java))
+            })
         }
         for (id in ids) {
             val facing = try {

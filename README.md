@@ -1,4 +1,4 @@
-# L200 Diagnóstico v0.1
+# L200 Diagnóstico v0.2
 
 App de diagnóstico para la pantalla Android (TS18, Android 12) de la L200.
 Revisa qué cámaras, dispositivos USB, apps y funciones expone el sistema,
